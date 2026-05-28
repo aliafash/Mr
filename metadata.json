@@ -1,0 +1,6 @@
+{
+  "name": "دليلي - Dalili",
+  "description": "تطبيق دليل الخدمات في اليمن - Dalili Services Directory in Yemen",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

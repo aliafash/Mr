@@ -1,0 +1,10 @@
+{
+  "name": "dalili-app",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "echo 'Android build'",
+    "lint": "echo 'Android lint'",
+    "dev": "echo 'Android Dev Server Running' && tail -f /dev/null",
+    "start": "echo 'Android Dev Server Running' && tail -f /dev/null"
+  }
+}
