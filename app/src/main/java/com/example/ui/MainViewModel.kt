@@ -371,4 +371,86 @@ class MainViewModel : ViewModel() {
         super.onCleared()
         realtimeClient?.dispose()
     }
+
+    // ━━━━━━━━━━ AI Chat Actions ━━━━━━━━━━
+
+    private val _chatMessages = MutableStateFlow<List<ChatMsg>>(listOf(
+        ChatMsg("أهلاً وسهلاً بك! أنا مساعد دليلي الذكي 🤖. كيف يمكنني مساعدتك اليوم في العثور على خدمات في اليمن أو الإجابة على أي من تساؤلاتك؟", false)
+    ))
+    val chatMessages: StateFlow<List<ChatMsg>> = _chatMessages
+
+    private val _isChatLoading = MutableStateFlow(false)
+    val isChatLoading: StateFlow<Boolean> = _isChatLoading
+
+    fun clearChatHistory() {
+        _chatMessages.value = listOf(
+            ChatMsg("أهلاً وسهلاً بك! أنا مساعد دليلي الذكي 🤖. كيف يمكنني مساعدتك اليوم في العثور على خدمات في اليمن أو الإجابة على أي من تساؤلاتك؟", false)
+        )
+    }
+
+    fun sendChatMessage(text: String) {
+        if (text.trim().isEmpty()) return
+
+        // 1. Add user message
+        val userMsg = ChatMsg(text, true)
+        val currentList = _chatMessages.value.toMutableList()
+        currentList.add(userMsg)
+        _chatMessages.value = currentList
+
+        viewModelScope.launch {
+            _isChatLoading.value = true
+            try {
+                // 2. Build full chat history to send to Gemini
+                val apiHistory = _chatMessages.value.map { msg ->
+                    GeminiContent(
+                        parts = listOf(GeminiPart(text = msg.text)),
+                        role = if (msg.isUser) "user" else "model"
+                    )
+                }
+
+                // 3. System instruction with current dynamic categories of the app!
+                val categoryNames = _categories.value.map { it.nameAr }.joinToString("، ")
+                val systemPrompt = "أنت هو 'مساعد دليلي الذكي'، دليل ومساعد تفاعلي ذكي فائق اللباقة والود لمساعدة مستخدمي تطبيق دليلي (دليلك الشامل لجميع خدمات اليمن) والدردشة معهم بحب وذكاء.\n" +
+                        "الأقسام والخدمات المتوفرة في تطبيق دليلي حالياً هي: [$categoryNames].\n" +
+                        "تفاعل مع المستخدمين بلغة عربية سلسة للغاية ومحببة، وبروح ترحيبية يمنية دافئة ولطيفة إذا كان ذلك مناسباً (مثل: أرحبوا، على راسي، يا حيا الله الطيبين).\n" +
+                        "أجب على كافة أسئلتهم بذكاء وإبداع وموثوقية عالية، سواء كانت استفسارات عامة أو خدماتية، وجذّب نقاشك معهم ليكون مميزاً وخفيف الظل ومفيداً جداً."
+
+                val request = GeminiRequest(
+                    contents = apiHistory,
+                    systemInstruction = GeminiInstruction(
+                        parts = listOf(GeminiPart(text = systemPrompt))
+                    )
+                )
+
+                // 4. Send request using API key from BuildConfig
+                val apiKey = com.example.BuildConfig.GEMINI_API_KEY
+                val response = GeminiClient.api.generateContent(apiKey, request)
+                val responseText = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+                    ?: "عذراً يا طيب، لم أستطع فهم ذلك بالشكل الصحيح. هل يمكنك إعادة الصياغة؟"
+
+                // 5. Add AI Response message
+                val aiMsg = ChatMsg(responseText, false)
+                val updatedWithAi = _chatMessages.value.toMutableList()
+                updatedWithAi.add(aiMsg)
+                _chatMessages.value = updatedWithAi
+
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "Gemini API integration error", e)
+                val errText = "يا حيا بك، يبدو أن هناك مشكلة بسيطة في الاتصال بالشبكة حالياً. تأكد من الإنترنت وحاول مرة أخرى يا عسل! 💛"
+                val errorMsg = ChatMsg(errText, false)
+                val updatedWithError = _chatMessages.value.toMutableList()
+                updatedWithError.add(errorMsg)
+                _chatMessages.value = updatedWithError
+            } finally {
+                _isChatLoading.value = false
+            }
+        }
+    }
 }
+
+data class ChatMsg(
+    val text: String,
+    val isUser: Boolean,
+    val timestamp: Long = System.currentTimeMillis()
+)
+

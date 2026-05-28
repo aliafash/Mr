@@ -11,6 +11,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -53,6 +54,7 @@ sealed class Screen {
     object UserHome : Screen()
     data class ProviderList(val category: Category) : Screen()
     object AdminPanel : Screen()
+    object AiChat : Screen()
 }
 
 @Composable
@@ -101,6 +103,9 @@ fun DaliliApp(viewModel: MainViewModel) {
                         },
                         onOpenAdmin = {
                             currentScreen = Screen.AdminPanel
+                        },
+                        onOpenAiChat = {
+                            currentScreen = Screen.AiChat
                         }
                     )
                 }
@@ -124,6 +129,17 @@ fun DaliliApp(viewModel: MainViewModel) {
                         secondaryColor = secondaryColor,
                         onLogout = {
                             viewModel.logout()
+                            currentScreen = Screen.UserHome
+                        }
+                    )
+                }
+                is Screen.AiChat -> {
+                    AiChatScreen(
+                        viewModel = viewModel,
+                        config = config,
+                        primaryColor = primaryColor,
+                        secondaryColor = secondaryColor,
+                        onBack = {
                             currentScreen = Screen.UserHome
                         }
                     )
@@ -268,7 +284,8 @@ fun UserHomeScreen(
     primaryColor: Color,
     secondaryColor: Color,
     onCategorySelect: (Category) -> Unit,
-    onOpenAdmin: () -> Unit
+    onOpenAdmin: () -> Unit,
+    onOpenAiChat: () -> Unit
 ) {
     val categories by viewModel.categories.collectAsState()
     val providers by viewModel.serviceProviders.collectAsState()
@@ -375,6 +392,20 @@ fun UserHomeScreen(
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = primaryColor)
             )
+        },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = { onOpenAiChat() },
+                containerColor = primaryColor,
+                contentColor = secondaryColor,
+                modifier = Modifier.testTag("ai_chat_fab")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AutoAwesome,
+                    contentDescription = "مساعد دليل التفاعلي",
+                    tint = secondaryColor
+                )
+            }
         }
     ) { innerPadding ->
         Column(
@@ -2032,3 +2063,235 @@ fun extractUrls(text: String): List<String> {
     val regex = Regex("\\b(https?://[\\w-]+(\\.[\\w-]+)+(/\\S*)?|www\\.[\\w-]+(\\.[\\w-]+)+(/\\S*)?)\\b")
     return regex.findAll(text).map { it.value }.toList()
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AiChatScreen(
+    viewModel: MainViewModel,
+    config: AppConfig,
+    primaryColor: Color,
+    secondaryColor: Color,
+    onBack: () -> Unit
+) {
+    val messages by viewModel.chatMessages.collectAsState()
+    val isChatLoading by viewModel.isChatLoading.collectAsState()
+    var inputText by remember { mutableStateOf("") }
+    val listState = rememberLazyListState()
+
+    // Auto scroll to bottom when new messages arrive
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) {
+            listState.animateScrollToItem(messages.size - 1)
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(secondaryColor),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = primaryColor,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Column {
+                            Text(
+                                text = "مساعد دليلي الذكي",
+                                color = secondaryColor,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp
+                            )
+                            Text(
+                                text = "دردش مع الذكاء الاصطناعي",
+                                color = Color.White.copy(alpha = 0.8f),
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "رجوع",
+                            tint = secondaryColor
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { viewModel.clearChatHistory() }) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteSweep,
+                            contentDescription = "مسح المحادثة",
+                            tint = secondaryColor
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = primaryColor)
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .background(Color(0xFFF5F7FA))
+        ) {
+            // Message List
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                contentPadding = PaddingValues(vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(messages) { msg ->
+                    val alignment = if (msg.isUser) Alignment.End else Alignment.Start
+                    val bubbleBg = if (msg.isUser) primaryColor else Color.White
+                    val textCol = if (msg.isUser) secondaryColor else Color.DarkGray
+                    val borderStroke = if (msg.isUser) null else BoxBorder(Color(0xFFE2E8F0))
+
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = alignment
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.Bottom,
+                            horizontalArrangement = if (msg.isUser) Arrangement.End else Arrangement.Start,
+                            modifier = Modifier.fillMaxWidth(0.85f)
+                        ) {
+                            if (!msg.isUser) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = null,
+                                    tint = primaryColor,
+                                    modifier = Modifier
+                                        .padding(end = 6.dp, bottom = 4.dp)
+                                        .size(16.dp)
+                                )
+                            }
+                            Card(
+                                shape = RoundedCornerShape(
+                                    topStart = 16.dp,
+                                    topEnd = 16.dp,
+                                    bottomStart = if (msg.isUser) 16.dp else 4.dp,
+                                    bottomEnd = if (msg.isUser) 4.dp else 16.dp
+                                ),
+                                colors = CardDefaults.cardColors(containerColor = bubbleBg),
+                                border = borderStroke,
+                                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                                    Text(
+                                        text = msg.text,
+                                        color = textCol,
+                                        fontSize = 14.sp,
+                                        lineHeight = 20.sp,
+                                        fontFamily = FontFamily.SansSerif,
+                                        textAlign = TextAlign.Start
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (isChatLoading) {
+                    item {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Start,
+                            modifier = Modifier.padding(start = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = primaryColor,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "مساعد دليلي الذكي يكتب الآن...",
+                                fontSize = 12.sp,
+                                color = Color.Gray,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Input bottom section
+            Surface(
+                tonalElevation = 8.dp,
+                shadowElevation = 8.dp,
+                color = Color.White,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = inputText,
+                        onValueChange = { inputText = it },
+                        placeholder = { Text("اكتب رسالتك للمساعد الذكي هنا...") },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("chat_text_input"),
+                        shape = RoundedCornerShape(24.dp),
+                        maxLines = 4,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = primaryColor,
+                            unfocusedBorderColor = Color(0xFFE2E8F0),
+                            cursorColor = primaryColor
+                        )
+                    )
+
+                    IconButton(
+                        onClick = {
+                            if (inputText.trim().isNotEmpty() && !isChatLoading) {
+                                viewModel.sendChatMessage(inputText)
+                                inputText = ""
+                            }
+                        },
+                        enabled = inputText.trim().isNotEmpty() && !isChatLoading,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (inputText.trim().isNotEmpty() && !isChatLoading) primaryColor else Color(0xFFE2E8F0)
+                            )
+                            .testTag("chat_send_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Send,
+                            contentDescription = "إرسال",
+                            tint = if (inputText.trim().isNotEmpty() && !isChatLoading) secondaryColor else Color.Gray,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
